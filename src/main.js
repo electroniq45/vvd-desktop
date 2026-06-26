@@ -100,16 +100,6 @@ function buildMenu() {
         { role: "zoomOut", label: "Уменьшить" },
         { type: "separator" },
         { role: "togglefullscreen", label: "Полный экран" },
-        { role: "toggleDevTools", label: "Инструменты разработчика" },
-      ],
-    },
-    {
-      label: "Справка",
-      submenu: [
-        {
-          label: "Открыть сайт formulavvd.com",
-          click: () => shell.openExternal("https://formulavvd.com"),
-        },
       ],
     },
   ];
