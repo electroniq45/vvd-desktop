@@ -10,7 +10,7 @@
     "start": "electron .",
     "icon": "node scripts/make-icon.js",
     "pack": "electron-builder --win --dir",
-    "dist": "electron-builder --win"
+    "dist": "electron-builder --win --publish never"
   },
   "devDependencies": {
     "electron": "^42.5.0",
