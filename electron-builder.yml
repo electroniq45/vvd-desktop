@@ -23,3 +23,9 @@ nsis:
   shortcutName: VVD 3.0
 
 artifactName: VVD-3.0-Setup-${version}.${ext}
+
+# Источник авто-обновлений (electron-updater читает Releases этого репозитория)
+publish:
+  provider: github
+  owner: electroniq45
+  repo: vvd-desktop

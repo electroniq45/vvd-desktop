@@ -1,4 +1,5 @@
-const { app, BrowserWindow, shell, Menu } = require("electron");
+const { app, BrowserWindow, shell, Menu, dialog } = require("electron");
+const { autoUpdater } = require("electron-updater");
 const path = require("path");
 
 // Боевой сайт CRM. Стартуем сразу с /home:
@@ -106,9 +107,38 @@ function buildMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
+// Авто-обновления через GitHub Releases (electron-updater).
+// В режиме разработки (npm start) пропускаем - нет упакованного app-update.yml.
+function setupAutoUpdates() {
+  if (!app.isPackaged) return;
+
+  autoUpdater.on("update-downloaded", (info) => {
+    dialog
+      .showMessageBox(mainWindow, {
+        type: "info",
+        buttons: ["Перезапустить сейчас", "Позже"],
+        defaultId: 0,
+        cancelId: 1,
+        title: "Доступно обновление",
+        message: `Загружена новая версия ${info.version}.`,
+        detail: "Перезапустите приложение, чтобы применить обновление.",
+      })
+      .then((res) => {
+        if (res.response === 0) autoUpdater.quitAndInstall();
+      });
+  });
+
+  autoUpdater.on("error", (err) => {
+    console.error("Ошибка автообновления:", err);
+  });
+
+  autoUpdater.checkForUpdates();
+}
+
 app.whenReady().then(() => {
   buildMenu();
   createWindow();
+  setupAutoUpdates();
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
