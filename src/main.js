@@ -9,6 +9,10 @@ const APP_URL = "https://formulavvd.com/home";
 
 let mainWindow;
 
+// true, когда обновление запрошено вручную (меню «Файл» → «Проверить обновления»).
+// Тогда показываем сообщение «обновлений нет»; при авто-проверке молчим.
+let manualUpdateCheck = false;
+
 // Разрешаем только один запущенный экземпляр приложения
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
@@ -39,6 +43,12 @@ function createWindow() {
     },
   });
 
+  // Не даём странице сайта перебивать заголовок окна - оставляем
+  // «VVD 3.0 (vX.Y.Z)», чтобы всегда была видна версия клиента.
+  mainWindow.on("page-title-updated", (e) => {
+    e.preventDefault();
+  });
+
   mainWindow.loadURL(APP_URL);
 
   // Ссылки, открываемые в новой вкладке/окне (target=_blank, window.open) -
@@ -58,11 +68,30 @@ function createWindow() {
   });
 }
 
+// Ручная проверка обновлений (из меню «Файл»).
+function checkForUpdatesManually() {
+  if (!app.isPackaged) {
+    dialog.showMessageBox(mainWindow, {
+      type: "info",
+      title: "Обновления",
+      message: "Проверка обновлений работает только в установленном приложении.",
+      buttons: ["ОК"],
+    });
+    return;
+  }
+  manualUpdateCheck = true;
+  autoUpdater.checkForUpdates();
+}
+
 function buildMenu() {
   const template = [
     {
       label: "Файл",
-      submenu: [{ role: "quit", label: "Выход" }],
+      submenu: [
+        { label: "Проверить обновления", click: () => checkForUpdatesManually() },
+        { type: "separator" },
+        { role: "quit", label: "Выход" },
+      ],
     },
     {
       label: "Правка",
@@ -112,16 +141,34 @@ function buildMenu() {
 function setupAutoUpdates() {
   if (!app.isPackaged) return;
 
+  autoUpdater.on("update-available", () => {
+    // Обновление найдено - скачается в фоне; сообщение покажем по готовности.
+    manualUpdateCheck = false;
+  });
+
+  autoUpdater.on("update-not-available", () => {
+    if (manualUpdateCheck) {
+      manualUpdateCheck = false;
+      dialog.showMessageBox(mainWindow, {
+        type: "info",
+        title: "Обновления",
+        message: "У вас установлена последняя версия VVD 3.0.",
+        buttons: ["ОК"],
+      });
+    }
+  });
+
   autoUpdater.on("update-downloaded", (info) => {
+    manualUpdateCheck = false;
     dialog
       .showMessageBox(mainWindow, {
         type: "info",
-        buttons: ["Перезапустить сейчас", "Позже"],
+        buttons: ["Обновить и перезапустить", "Позже"],
         defaultId: 0,
         cancelId: 1,
-        title: "Доступно обновление",
-        message: `Загружена новая версия ${info.version}.`,
-        detail: "Перезапустите приложение, чтобы применить обновление.",
+        title: "Обновление VVD 3.0",
+        message: `Доступна новая версия (${info.version}).`,
+        detail: "Нажмите «Обновить и перезапустить», чтобы установить обновление.",
       })
       .then((res) => {
         if (res.response === 0) autoUpdater.quitAndInstall();
@@ -129,6 +176,16 @@ function setupAutoUpdates() {
   });
 
   autoUpdater.on("error", (err) => {
+    if (manualUpdateCheck) {
+      manualUpdateCheck = false;
+      dialog.showMessageBox(mainWindow, {
+        type: "error",
+        title: "Обновления",
+        message: "Не удалось проверить обновления.",
+        detail: String(err),
+        buttons: ["ОК"],
+      });
+    }
     console.error("Ошибка автообновления:", err);
   });
 
