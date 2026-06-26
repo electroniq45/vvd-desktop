@@ -28,7 +28,7 @@ function createWindow() {
     height: 800,
     minWidth: 900,
     minHeight: 600,
-    title: "VVD 3.0",
+    title: `VVD 3.0 (v${app.getVersion()})`,
     icon: path.join(__dirname, "..", "build", "icon.png"),
     backgroundColor: "#F9F5EF",
     webPreferences: {
@@ -133,6 +133,10 @@ function setupAutoUpdates() {
   });
 
   autoUpdater.checkForUpdates();
+
+  // Периодическая проверка (раз в 30 минут), чтобы обновление подхватывалось
+  // без перезапуска приложения.
+  setInterval(() => autoUpdater.checkForUpdates(), 30 * 60 * 1000);
 }
 
 app.whenReady().then(() => {
