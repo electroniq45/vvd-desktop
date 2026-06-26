@@ -8,7 +8,7 @@
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
-    "icon": "png-to-ico build/icon.png > build/icon.ico",
+    "icon": "node scripts/make-icon.js",
     "pack": "electron-builder --win --dir",
     "dist": "electron-builder --win"
   },

@@ -1,0 +1,46 @@
+name: Сборка установщика Windows
+
+# Запускается при пуше тега вида v1.0.0, либо вручную из вкладки Actions
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate icon
+        run: npm run icon
+
+      - name: Build Windows installer
+        run: npm run dist
+
+      # Артефакт сборки - .exe можно скачать со страницы запуска в Actions
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vvd-desktop-windows
+          path: dist/*.exe
+
+      # При пуше тега - дополнительно публикуем .exe в Releases (прямая ссылка)
+      - name: Publish to Releases
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.exe
