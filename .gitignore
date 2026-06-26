@@ -1,0 +1,10 @@
+node_modules/
+dist/
+build/icon.ico
+*.log
+.DS_Store
+
+# на всякий случай - чтобы секреты не попали в репозиторий
+*token*
+.env
+.env.*

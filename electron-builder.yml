@@ -1,0 +1,25 @@
+appId: com.formulavvd.desktop
+productName: VVD 3.0
+
+directories:
+  output: dist
+  buildResources: build
+
+files:
+  - src/**/*
+  - package.json
+
+win:
+  target: nsis
+  icon: build/icon.ico
+
+# Установщик: даём выбрать папку, создаём ярлыки на рабочем столе и в меню «Пуск»
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: VVD 3.0
+
+artifactName: VVD-3.0-Setup-${version}.${ext}
