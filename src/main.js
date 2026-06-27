@@ -1,6 +1,8 @@
 const { app, BrowserWindow, shell, Menu, dialog } = require("electron");
 const { autoUpdater } = require("electron-updater");
 const path = require("path");
+const fs = require("fs");
+const crypto = require("crypto");
 
 // Боевой сайт CRM. Стартуем сразу с /home:
 // если сессии нет - сайт сам уводит на /login, после входа возвращает на /home.
@@ -196,10 +198,41 @@ function setupAutoUpdates() {
   setInterval(() => autoUpdater.checkForUpdates(), 30 * 60 * 1000);
 }
 
+// Анонимная телеметрия: при запуске сообщаем серверу installId + версию + ОС.
+// installId - случайный UUID, хранится локально в папке данных приложения.
+// Никаких персональных данных не передаётся.
+function getInstallId() {
+  const file = path.join(app.getPath("userData"), "install-id");
+  try {
+    if (fs.existsSync(file)) return fs.readFileSync(file, "utf8").trim();
+  } catch {}
+  const id = crypto.randomUUID();
+  try {
+    fs.writeFileSync(file, id);
+  } catch {}
+  return id;
+}
+
+async function sendPing() {
+  if (!app.isPackaged) return;
+  try {
+    await fetch("https://formulavvd.com/api/desktop/ping", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        installId: getInstallId(),
+        version: app.getVersion(),
+        os: process.platform,
+      }),
+    });
+  } catch {}
+}
+
 app.whenReady().then(() => {
   buildMenu();
   createWindow();
   setupAutoUpdates();
+  sendPing();
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
