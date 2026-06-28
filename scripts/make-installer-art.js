@@ -51,9 +51,8 @@ async function svgToBmp(svg, outName) {
   </defs>
   <rect width="164" height="314" fill="url(#g)"/>
   <image x="54" y="20" width="56" height="56" href="data:image/png;base64,${logo64}"/>
-  <text x="82" y="98" text-anchor="middle" fill="#ffffff" font-family="DejaVu Sans, sans-serif" font-size="18" font-weight="bold">VVD 3.0</text>
-  <text x="82" y="116" text-anchor="middle" fill="#ffffff" fill-opacity="0.6" font-family="DejaVu Sans, sans-serif" font-size="8">образовательный центр</text>
-  <image x="17" y="128" width="130" height="170" href="data:image/png;base64,${mascot64}" preserveAspectRatio="xMidYMax meet"/>
+  <text x="82" y="106" text-anchor="middle" fill="#ffffff" font-family="DejaVu Sans, sans-serif" font-size="19" font-weight="bold">VVD 3.0</text>
+  <image x="14" y="124" width="136" height="178" href="data:image/png;base64,${mascot64}" preserveAspectRatio="xMidYMax meet"/>
   <rect x="0" y="309" width="164" height="5" fill="#AA001B"/>
 </svg>`;
   await svgToBmp(sidebar, "installerSidebar.bmp");
@@ -63,9 +62,8 @@ async function svgToBmp(svg, outName) {
 <svg width="150" height="57" xmlns="http://www.w3.org/2000/svg">
   <rect width="150" height="57" fill="#ffffff"/>
   <rect x="0" y="0" width="5" height="57" fill="#AA001B"/>
-  <image x="14" y="11" width="34" height="34" href="data:image/png;base64,${logo64}"/>
-  <text x="56" y="28" fill="#003D66" font-family="DejaVu Sans, sans-serif" font-size="13" font-weight="bold">VVD 3.0</text>
-  <text x="56" y="42" fill="#888888" font-family="DejaVu Sans, sans-serif" font-size="7">CRM для образовательных центров</text>
+  <image x="16" y="12" width="33" height="33" href="data:image/png;base64,${logo64}"/>
+  <text x="58" y="36" fill="#003D66" font-family="DejaVu Sans, sans-serif" font-size="16" font-weight="bold">VVD 3.0</text>
 </svg>`;
   await svgToBmp(header, "installerHeader.bmp");
 
