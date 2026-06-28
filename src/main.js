@@ -3,6 +3,7 @@ const { autoUpdater } = require("electron-updater");
 const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
+const { t, resolveLocale } = require("./i18n");
 
 // Боевой сайт CRM. Стартуем сразу с /home:
 // если сессии нет - сайт сам уводит на /login, после входа возвращает на /home.
@@ -78,9 +79,9 @@ function checkForUpdatesManually() {
   if (!app.isPackaged) {
     dialog.showMessageBox(mainWindow, {
       type: "info",
-      title: "Обновления",
-      message: "Проверка обновлений работает только в установленном приложении.",
-      buttons: ["ОК"],
+      title: t("updTitle"),
+      message: t("devOnly"),
+      buttons: [t("ok")],
     });
     return;
   }
@@ -91,50 +92,50 @@ function checkForUpdatesManually() {
 function buildMenu() {
   const template = [
     {
-      label: "Файл",
+      label: t("file"),
       submenu: [
-        { label: "Проверить обновления", click: () => checkForUpdatesManually() },
+        { label: t("checkUpdates"), click: () => checkForUpdatesManually() },
         { type: "separator" },
-        { role: "quit", label: "Выход" },
+        { role: "quit", label: t("quit") },
       ],
     },
     {
-      label: "Правка",
+      label: t("edit"),
       submenu: [
-        { role: "undo", label: "Отменить" },
-        { role: "redo", label: "Повторить" },
+        { role: "undo", label: t("undo") },
+        { role: "redo", label: t("redo") },
         { type: "separator" },
-        { role: "cut", label: "Вырезать" },
-        { role: "copy", label: "Копировать" },
-        { role: "paste", label: "Вставить" },
-        { role: "selectAll", label: "Выделить всё" },
+        { role: "cut", label: t("cut") },
+        { role: "copy", label: t("copy") },
+        { role: "paste", label: t("paste") },
+        { role: "selectAll", label: t("selectAll") },
       ],
     },
     {
-      label: "Вид",
+      label: t("view"),
       submenu: [
         {
-          label: "Назад",
+          label: t("back"),
           accelerator: "Alt+Left",
           click: (_item, win) => {
             if (win && win.webContents.canGoBack()) win.webContents.goBack();
           },
         },
         {
-          label: "Вперёд",
+          label: t("forward"),
           accelerator: "Alt+Right",
           click: (_item, win) => {
             if (win && win.webContents.canGoForward()) win.webContents.goForward();
           },
         },
-        { role: "reload", label: "Обновить" },
-        { role: "forceReload", label: "Обновить (сброс кэша)" },
+        { role: "reload", label: t("reload") },
+        { role: "forceReload", label: t("forceReload") },
         { type: "separator" },
-        { role: "resetZoom", label: "Сбросить масштаб" },
-        { role: "zoomIn", label: "Увеличить" },
-        { role: "zoomOut", label: "Уменьшить" },
+        { role: "resetZoom", label: t("resetZoom") },
+        { role: "zoomIn", label: t("zoomIn") },
+        { role: "zoomOut", label: t("zoomOut") },
         { type: "separator" },
-        { role: "togglefullscreen", label: "Полный экран" },
+        { role: "togglefullscreen", label: t("fullscreen") },
       ],
     },
   ];
@@ -153,7 +154,7 @@ function createUpdaterWindow() {
     resizable: false,
     maximizable: false,
     fullscreenable: false,
-    title: "Обновление VVD 3.0",
+    title: t("updWindow"),
     parent: mainWindow || undefined,
     backgroundColor: "#F9F5EF",
     autoHideMenuBar: true,
@@ -165,7 +166,9 @@ function createUpdaterWindow() {
     },
   });
   updaterWindow.setMenu(null);
-  updaterWindow.loadFile(path.join(__dirname, "updater.html"));
+  updaterWindow.loadFile(path.join(__dirname, "updater.html"), {
+    search: "lang=" + resolveLocale(),
+  });
   updaterWindow.on("closed", () => {
     updaterWindow = null;
   });
@@ -236,10 +239,10 @@ function setupAutoUpdates() {
       manualUpdateCheck = false;
       dialog.showMessageBox(mainWindow, {
         type: "error",
-        title: "Обновления",
-        message: "Не удалось проверить обновления.",
+        title: t("updTitle"),
+        message: t("updErr"),
         detail: String(err),
-        buttons: ["ОК"],
+        buttons: [t("ok")],
       });
     }
     console.error("Ошибка автообновления:", err);
