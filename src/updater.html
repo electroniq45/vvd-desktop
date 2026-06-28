@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; media-src 'self'; style-src 'unsafe-inline'; script-src 'self'" />
+    <title>Обновление VVD 3.0</title>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body {
+        height: 100%;
+        font-family: "Segoe UI", system-ui, sans-serif;
+        background: #f9f5ef;
+        color: #003d66;
+        overflow: hidden;
+        user-select: none;
+      }
+      .wrap {
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 22px 28px 26px;
+        text-align: center;
+      }
+      /* Маскот в фирменном круге */
+      .mascot {
+        width: 132px;
+        height: 132px;
+        border-radius: 50%;
+        background: radial-gradient(circle at 50% 35%, #0a5a91 0%, #003d66 70%);
+        display: flex;
+        align-items: flex-end;
+        justify-content: center;
+        overflow: hidden;
+        box-shadow: 0 8px 22px rgba(0, 61, 102, 0.25);
+        flex-shrink: 0;
+      }
+      .mascot video { width: 118px; height: 118px; object-fit: contain; }
+      h1 { font-size: 19px; font-weight: 700; margin-top: 16px; }
+      .sub { font-size: 13px; color: #6b7a86; margin-top: 5px; }
+      /* Полоса прогресса */
+      .bar-area { width: 100%; margin-top: 22px; }
+      .bar-track {
+        height: 14px;
+        background: #e7ddcd;
+        border-radius: 99px;
+        overflow: hidden;
+        box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.08);
+      }
+      .bar-fill {
+        height: 100%;
+        width: 0%;
+        border-radius: 99px;
+        background: linear-gradient(90deg, #003d66, #0a6fb0);
+        transition: width 0.35s ease;
+        position: relative;
+        overflow: hidden;
+      }
+      .bar-fill::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+        transform: translateX(-100%);
+        animation: shimmer 1.3s infinite;
+      }
+      @keyframes shimmer { 100% { transform: translateX(100%); } }
+      .pct { margin-top: 9px; font-size: 13px; font-weight: 600; color: #003d66; }
+      /* Кнопка */
+      .btn {
+        display: none;
+        margin-top: 20px;
+        padding: 11px 26px;
+        border: none;
+        border-radius: 10px;
+        background: #aa001b;
+        color: #fff;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background 0.2s, transform 0.1s;
+      }
+      .btn:hover { background: #c70020; }
+      .btn:active { transform: scale(0.97); }
+      .done .bar-fill::after { animation: none; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap" id="wrap">
+      <div class="mascot">
+        <video id="mascot" autoplay loop muted playsinline>
+          <source src="assets/mascot-loading.webm" type="video/webm" />
+        </video>
+      </div>
+      <h1 id="title">Загрузка обновления</h1>
+      <div class="sub" id="sub">Пожалуйста, подождите - идёт скачивание новой версии</div>
+      <div class="bar-area">
+        <div class="bar-track"><div class="bar-fill" id="fill"></div></div>
+        <div class="pct" id="pct">0%</div>
+      </div>
+      <button class="btn" id="restart">Обновить и перезапустить</button>
+    </div>
+
+    <script>
+      const fill = document.getElementById("fill");
+      const pct = document.getElementById("pct");
+      const title = document.getElementById("title");
+      const sub = document.getElementById("sub");
+      const btn = document.getElementById("restart");
+      const wrap = document.getElementById("wrap");
+      const mascot = document.getElementById("mascot");
+
+      window.updaterAPI.onProgress((p) => {
+        const v = Math.max(0, Math.min(100, Math.round(p)));
+        fill.style.width = v + "%";
+        pct.textContent = v + "%";
+      });
+
+      window.updaterAPI.onReady((version) => {
+        wrap.classList.add("done");
+        fill.style.width = "100%";
+        pct.textContent = "100%";
+        title.textContent = "Обновление готово";
+        sub.textContent = version
+          ? "Версия " + version + " загружена и готова к установке"
+          : "Новая версия загружена и готова к установке";
+        // переключаем маскота на «приветствие»
+        mascot.loop = false;
+        mascot.querySelector("source").src = "assets/mascot-hello.webm";
+        mascot.load();
+        mascot.play().catch(() => {});
+        btn.style.display = "inline-block";
+      });
+
+      window.updaterAPI.onError(() => {
+        title.textContent = "Не удалось загрузить обновление";
+        sub.textContent = "Проверьте подключение к интернету и попробуйте позже";
+        pct.textContent = "";
+      });
+
+      btn.addEventListener("click", () => {
+        btn.disabled = true;
+        btn.textContent = "Перезапуск…";
+        window.updaterAPI.restart();
+      });
+    </script>
+  </body>
+</html>

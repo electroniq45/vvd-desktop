@@ -1,4 +1,4 @@
-const { app, BrowserWindow, shell, Menu, dialog } = require("electron");
+const { app, BrowserWindow, shell, Menu, dialog, ipcMain } = require("electron");
 const { autoUpdater } = require("electron-updater");
 const path = require("path");
 const fs = require("fs");
@@ -14,6 +14,7 @@ let mainWindow;
 // true, когда обновление запрошено вручную (меню «Файл» → «Проверить обновления»).
 // Тогда показываем сообщение «обновлений нет»; при авто-проверке молчим.
 let manualUpdateCheck = false;
+let updaterWindow = null;
 
 // Разрешаем только один запущенный экземпляр приложения
 const gotLock = app.requestSingleInstanceLock();
@@ -138,14 +139,60 @@ function buildMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
+// Фирменное окно обновления (маскот + анимированная полоса прогресса).
+function createUpdaterWindow() {
+  if (updaterWindow) {
+    updaterWindow.focus();
+    return;
+  }
+  updaterWindow = new BrowserWindow({
+    width: 460,
+    height: 440,
+    resizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    title: "Обновление VVD 3.0",
+    parent: mainWindow || undefined,
+    backgroundColor: "#F9F5EF",
+    autoHideMenuBar: true,
+    webPreferences: {
+      preload: path.join(__dirname, "updater-preload.js"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  updaterWindow.setMenu(null);
+  updaterWindow.loadFile(path.join(__dirname, "updater.html"));
+  updaterWindow.on("closed", () => {
+    updaterWindow = null;
+  });
+}
+
+function sendToUpdater(channel, payload) {
+  if (updaterWindow && !updaterWindow.isDestroyed()) {
+    updaterWindow.webContents.send(channel, payload);
+  }
+}
+
 // Авто-обновления через GitHub Releases (electron-updater).
 // В режиме разработки (npm start) пропускаем - нет упакованного app-update.yml.
 function setupAutoUpdates() {
   if (!app.isPackaged) return;
 
+  // Кнопка «Обновить и перезапустить» в окне обновления.
+  // isSilent=true - обновление ставится тихо, без повторного мастера установки.
+  ipcMain.on("update-restart", () => {
+    autoUpdater.quitAndInstall(true, true);
+  });
+  ipcMain.on("update-close", () => {
+    if (updaterWindow) updaterWindow.close();
+  });
+
   autoUpdater.on("update-available", () => {
-    // Обновление найдено - скачается в фоне; сообщение покажем по готовности.
     manualUpdateCheck = false;
+    // Показываем фирменное окно - скачивание уже идёт в фоне.
+    createUpdaterWindow();
   });
 
   autoUpdater.on("update-not-available", () => {
@@ -160,24 +207,16 @@ function setupAutoUpdates() {
     }
   });
 
+  autoUpdater.on("download-progress", (p) => {
+    sendToUpdater("update-progress", p.percent);
+  });
+
   autoUpdater.on("update-downloaded", (info) => {
-    manualUpdateCheck = false;
-    dialog
-      .showMessageBox(mainWindow, {
-        type: "info",
-        buttons: ["Обновить и перезапустить", "Позже"],
-        defaultId: 0,
-        cancelId: 1,
-        title: "Обновление VVD 3.0",
-        message: `Доступна новая версия (${info.version}).`,
-        detail: "Нажмите «Обновить и перезапустить», чтобы установить обновление.",
-      })
-      .then((res) => {
-        if (res.response === 0) autoUpdater.quitAndInstall();
-      });
+    sendToUpdater("update-ready", info.version);
   });
 
   autoUpdater.on("error", (err) => {
+    sendToUpdater("update-error");
     if (manualUpdateCheck) {
       manualUpdateCheck = false;
       dialog.showMessageBox(mainWindow, {
