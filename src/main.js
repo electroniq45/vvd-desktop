@@ -15,6 +15,7 @@ let mainWindow;
 // Тогда показываем сообщение «обновлений нет»; при авто-проверке молчим.
 let manualUpdateCheck = false;
 let updaterWindow = null;
+let latestVersion = null;
 
 // Разрешаем только один запущенный экземпляр приложения
 const gotLock = app.requestSingleInstanceLock();
@@ -180,8 +181,18 @@ function sendToUpdater(channel, payload) {
 function setupAutoUpdates() {
   if (!app.isPackaged) return;
 
-  // Кнопка «Обновить и перезапустить» в окне обновления.
-  // isSilent=true - обновление ставится тихо, без повторного мастера установки.
+  // Не качаем автоматически - сначала спрашиваем пользователя в окне обновления.
+  autoUpdater.autoDownload = false;
+
+  // «Рукопожатие»: окно обновления загрузилось и запрашивает текущее состояние.
+  ipcMain.on("updater-ready", () => {
+    if (latestVersion) sendToUpdater("update-available", latestVersion);
+  });
+  // Пользователь нажал «Загрузить обновление» - запускаем скачивание.
+  ipcMain.on("update-download", () => {
+    autoUpdater.downloadUpdate();
+  });
+  // «Обновить и перезапустить»: тихая установка (без повторного мастера).
   ipcMain.on("update-restart", () => {
     autoUpdater.quitAndInstall(true, true);
   });
@@ -189,9 +200,10 @@ function setupAutoUpdates() {
     if (updaterWindow) updaterWindow.close();
   });
 
-  autoUpdater.on("update-available", () => {
+  autoUpdater.on("update-available", (info) => {
     manualUpdateCheck = false;
-    // Показываем фирменное окно - скачивание уже идёт в фоне.
+    latestVersion = info.version;
+    // Открываем окно с предложением загрузить; окно само запросит версию.
     createUpdaterWindow();
   });
 
@@ -230,11 +242,9 @@ function setupAutoUpdates() {
     console.error("Ошибка автообновления:", err);
   });
 
+  // Проверяем обновления при запуске (без назойливых периодических проверок -
+  // окно появится один раз, если есть новая версия).
   autoUpdater.checkForUpdates();
-
-  // Периодическая проверка (раз в 30 минут), чтобы обновление подхватывалось
-  // без перезапуска приложения.
-  setInterval(() => autoUpdater.checkForUpdates(), 30 * 60 * 1000);
 }
 
 // Анонимная телеметрия: при запуске сообщаем серверу installId + версию + ОС.
