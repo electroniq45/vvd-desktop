@@ -45,6 +45,19 @@ window.updaterAPI.onError(() => {
   $("download").style.display = "none";
 });
 
+window.updaterAPI.onUpToDate((version) => {
+  $("title").textContent = "Установлена последняя версия";
+  $("sub").textContent = version
+    ? "У вас актуальная версия VVD 3.0 (v" + version + ")"
+    : "У вас актуальная версия VVD 3.0";
+  $("barArea").style.display = "none";
+  $("download").style.display = "none";
+  $("restart").style.display = "none";
+  $("close").style.display = "inline-block";
+});
+
+$("close").addEventListener("click", () => window.updaterAPI.close());
+
 $("restart").addEventListener("click", () => {
   $("restart").disabled = true;
   $("restart").textContent = "Перезапуск…";

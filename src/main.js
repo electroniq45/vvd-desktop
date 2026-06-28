@@ -16,6 +16,7 @@ let mainWindow;
 let manualUpdateCheck = false;
 let updaterWindow = null;
 let latestVersion = null;
+let updaterState = null; // "available" | "uptodate"
 
 // Разрешаем только один запущенный экземпляр приложения
 const gotLock = app.requestSingleInstanceLock();
@@ -186,7 +187,11 @@ function setupAutoUpdates() {
 
   // «Рукопожатие»: окно обновления загрузилось и запрашивает текущее состояние.
   ipcMain.on("updater-ready", () => {
-    if (latestVersion) sendToUpdater("update-available", latestVersion);
+    if (updaterState === "available" && latestVersion) {
+      sendToUpdater("update-available", latestVersion);
+    } else if (updaterState === "uptodate") {
+      sendToUpdater("update-uptodate", app.getVersion());
+    }
   });
   // Пользователь нажал «Загрузить обновление» - запускаем скачивание.
   ipcMain.on("update-download", () => {
@@ -203,6 +208,7 @@ function setupAutoUpdates() {
   autoUpdater.on("update-available", (info) => {
     manualUpdateCheck = false;
     latestVersion = info.version;
+    updaterState = "available";
     // Открываем окно с предложением загрузить; окно само запросит версию.
     createUpdaterWindow();
   });
@@ -210,12 +216,9 @@ function setupAutoUpdates() {
   autoUpdater.on("update-not-available", () => {
     if (manualUpdateCheck) {
       manualUpdateCheck = false;
-      dialog.showMessageBox(mainWindow, {
-        type: "info",
-        title: "Обновления",
-        message: "У вас установлена последняя версия VVD 3.0.",
-        buttons: ["ОК"],
-      });
+      updaterState = "uptodate";
+      // Фирменное окно вместо стандартного диалога Windows.
+      createUpdaterWindow();
     }
   });
 
