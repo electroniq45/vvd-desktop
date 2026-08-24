@@ -8,9 +8,45 @@ const { t, resolveLocale } = require("./i18n");
 // Боевой сайт CRM. Стартуем сразу с /home:
 // если сессии нет - сайт сам уводит на /login, после входа возвращает на /home.
 // Лендинг в десктоп-клиенте таким образом не показывается.
-const APP_URL = "https://formulavvd.com/home";
+//
+// VVD_APP_URL подменяет адрес ТОЛЬКО в неупакованном приложении (npm start) -
+// так проверяется восстановление после обрыва связи на локальном сервере.
+// В установленном клиенте переменная игнорируется: иначе подсунуть человеку
+// чужой адрес можно было бы просто ярлыком.
+const APP_URL =
+  (!app.isPackaged && process.env.VVD_APP_URL) || "https://formulavvd.com/home";
+
+// Адрес страницы сайта, а не служебный (about:blank, chrome://, file://):
+// запоминать имеет смысл только то, куда можно вернуться
+const isWebUrl = (url) =>
+  typeof url === "string" && (url.startsWith("https://") || url.startsWith("http://"));
+
+// loadURL отдаёт промис, который ОТКЛОНЯЕТСЯ при неудачной загрузке. Ошибку
+// разбирает did-fail-load, а необработанное отклонение в главном процессе
+// Node считает фатальным - то есть попытка вылечить белый экран убила бы
+// приложение целиком. Гасим здесь.
+function loadUrlSafe(win, url) {
+  if (!win || win.isDestroyed()) return;
+  win.loadURL(url).catch(() => {});
+}
 
 let mainWindow;
+
+// Счётчик падений окна подряд. Одиночный сбой лечим молча - перезагружаем
+// страницу, пользователь видит секундную заминку вместо белого экрана.
+// Если рушится раз за разом, молчать нельзя: показываем диалог.
+let crashStreak = 0;
+let crashStreakResetTimer = null;
+// Адрес, на котором окно умерло: после перезагрузки возвращаем человека туда же
+let lastGoodUrl = APP_URL;
+// Показан ли диалог «нет связи» - чтобы не плодить их при каждой попытке
+let offlineDialogOpen = false;
+// Сколько раз подряд пытались загрузить страницу после обрыва связи
+let offlineRetries = 0;
+let offlineRetryTimer = null;
+// Провалилась ли текущая загрузка. Нужен, чтобы отличить настоящую загрузку
+// страницы от заглушки, которую Electron дорисовывает после неудачи
+let loadFailed = false;
 
 // true, когда обновление запрошено вручную (меню «Файл» → «Проверить обновления»).
 // Тогда показываем сообщение «обновлений нет»; при авто-проверке молчим.
@@ -55,7 +91,7 @@ function createWindow() {
     e.preventDefault();
   });
 
-  mainWindow.loadURL(APP_URL);
+  loadUrlSafe(mainWindow, APP_URL);
 
   // Ссылки, открываемые в новой вкладке/окне (target=_blank, window.open) -
   // отправляем во внешний системный браузер, новых окон не плодим.
@@ -69,9 +105,189 @@ function createWindow() {
   // Навигацию в самом окне не перехватываем - так корректно работают
   // редиректы авторизации и платёжного шлюза внутри приложения.
 
+  attachRecovery(mainWindow);
+
   mainWindow.on("closed", () => {
     mainWindow = null;
   });
+}
+
+// ============================================================
+// ВОССТАНОВЛЕНИЕ ПОСЛЕ БЕЛОГО ЭКРАНА
+//
+// У Electron нет своей страницы «что-то пошло не так»: если страница не
+// загрузилась или процесс её отрисовки умер, остаётся ПУСТОЕ БЕЛОЕ ОКНО.
+// Меню на месте, а страницы нет, и сама она уже не вернётся - даже когда
+// интернет восстановится. Со стороны это выглядит как «программа сломалась»,
+// хотя сервер цел и все данные на месте.
+//
+// Кейс SMART KIDS 24.08.2026: у центра на минуту пропал интернет, человек в
+// этот момент переходил на другую страницу - и белое окно продержалось почти
+// час, пока приложение не закрыли и не открыли заново. В логах сервера при
+// этом ни одной ошибки: запросы просто перестали приходить.
+//
+// Три причины белого окна, и все три лечим здесь:
+//   did-fail-load       - страница не загрузилась (нет связи, сервер
+//                         перезапускается после обновления);
+//   render-process-gone - умер процесс отрисовки (обычно нехватка памяти
+//                         в окне, открытом весь рабочий день);
+//   unresponsive        - окно повисло.
+// Лечение одно: вернуть человека на ту страницу, где он работал.
+// ============================================================
+function attachRecovery(win) {
+  const wc = win.webContents;
+
+  // Запоминаем адрес удачно открытой страницы - на него и вернёмся
+  wc.on("did-navigate-in-page", (_e, url) => {
+    if (isWebUrl(url)) lastGoodUrl = url;
+  });
+  wc.on("did-navigate", (_e, url) => {
+    if (isWebUrl(url) && !loadFailed) lastGoodUrl = url;
+  });
+
+  wc.on("did-start-loading", () => {
+    loadFailed = false;
+  });
+
+  // Страница загрузилась - значит прошлое падение позади.
+  //
+  // ⚠️ Событие «загрузилось» приходит и ПОСЛЕ неудачной загрузки: Electron
+  // дорисовывает вместо страницы пустую заглушку и честно сообщает, что
+  // закончил. Принять это за успех нельзя - иначе мы сами отменяем
+  // собственный повтор, и окно остаётся белым навсегда (проверено на стенде:
+  // без этого флага повтор был ровно один и тот не срабатывал). Отличаем по
+  // флагу: did-fail-load приходит раньше, чем did-finish-load.
+  wc.on("did-finish-load", () => {
+    if (loadFailed) return;
+    offlineDialogOpen = false;
+    // Связь вернулась: счётчик повторов начинаем с нуля
+    if (offlineRetries > 0) {
+      console.error(`Связь вернулась с ${offlineRetries}-й попытки`);
+      reportCrash("load-failed", offlineRetries);
+    }
+    offlineRetries = 0;
+    if (offlineRetryTimer) {
+      clearTimeout(offlineRetryTimer);
+      offlineRetryTimer = null;
+    }
+    if (crashStreakResetTimer) clearTimeout(crashStreakResetTimer);
+    // Сбрасываем счётчик не сразу: если окно рушится по кругу, перезагрузка
+    // тоже успевает «загрузиться», и без выдержки серия никогда не наберётся
+    crashStreakResetTimer = setTimeout(() => {
+      crashStreak = 0;
+    }, 60_000);
+  });
+
+  // Смерть процесса отрисовки - тот самый белый экран
+  wc.on("render-process-gone", (_e, details) => {
+    const reason = details && details.reason ? details.reason : "crashed";
+    const exitCode = details ? details.exitCode : null;
+    console.error("Окно приложения упало:", reason, exitCode);
+    reportCrash(reason, exitCode);
+
+    // «clean-exit» - штатное завершение при закрытии окна, лечить нечего
+    if (reason === "clean-exit") return;
+
+    crashStreak += 1;
+    if (crashStreak <= 3) {
+      recoverWindow();
+      return;
+    }
+
+    // Рушится по кругу - дальше перезагружать бессмысленно, спрашиваем человека
+    const choice = dialog.showMessageBoxSync(win, {
+      type: "error",
+      title: t("crashTitle"),
+      message: t("crashRepeated"),
+      buttons: [t("crashRestart"), t("quit")],
+      defaultId: 0,
+      cancelId: 0,
+    });
+    if (choice === 1) {
+      app.quit();
+    } else {
+      crashStreak = 0;
+      recoverWindow();
+    }
+  });
+
+  // Окно повисло: страница жива, но не отвечает. Сама может и отойти,
+  // поэтому решение оставляем за человеком.
+  win.on("unresponsive", () => {
+    const choice = dialog.showMessageBoxSync(win, {
+      type: "warning",
+      title: t("crashTitle"),
+      message: t("hangMessage"),
+      buttons: [t("hangWait"), t("crashRestart")],
+      defaultId: 0,
+      cancelId: 0,
+    });
+    if (choice === 1) {
+      reportCrash("unresponsive", null);
+      recoverWindow();
+    }
+  });
+
+  // Страница не загрузилась: пропал интернет, сервер на перезапуске после
+  // обновления. Electron в этом случае оставляет ПУСТОЕ БЕЛОЕ ОКНО - своей
+  // страницы «нет связи» у него нет, а страницу сайта он уже выгрузил. Само
+  // окно не оживёт даже когда интернет вернётся: перезагружать его некому
+  // (кейс SMART KIDS 24.08.2026 - у центра моргнул интернет, и белый экран
+  // продержался почти час, пока приложение не закрыли и не открыли заново).
+  //
+  // Поэтому сначала пробуем молча: короткий обрыв связи так и остаётся
+  // незамеченным. Спрашиваем человека, только если связь не вернулась.
+  wc.on("did-fail-load", (_e, errorCode, _desc, validatedURL, isMainFrame) => {
+    // -3 (ERR_ABORTED) - обычная отмена при быстром переходе, не ошибка
+    if (!isMainFrame || errorCode === -3) return;
+    // Пометка для did-finish-load: то, что сейчас «догрузится», - заглушка
+    loadFailed = true;
+    if (offlineDialogOpen) return;
+
+    const target = isWebUrl(validatedURL) ? validatedURL : lastGoodUrl || APP_URL;
+    console.error("Страница не загрузилась:", errorCode, target);
+    retryLoad(win, target);
+  });
+}
+
+// Тихие повторы загрузки, пока связь не вернётся: 5 попыток раз в 6 секунд -
+// полминуты на то, чтобы интернет моргнул и восстановился. Не помогло -
+// спрашиваем человека, а не оставляем его перед белым окном.
+function retryLoad(win, target) {
+  offlineRetries += 1;
+  if (offlineRetries <= 5) {
+    console.error(`Повтор загрузки ${offlineRetries}/5 через 6 с`);
+    if (offlineRetryTimer) clearTimeout(offlineRetryTimer);
+    offlineRetryTimer = setTimeout(() => {
+      loadUrlSafe(win, target);
+    }, 6000);
+    return;
+  }
+
+  offlineRetries = 0;
+  offlineDialogOpen = true;
+  const choice = dialog.showMessageBoxSync(win, {
+    type: "warning",
+    title: t("offlineTitle"),
+    message: t("offlineMessage"),
+    buttons: [t("offlineRetry"), t("quit")],
+    defaultId: 0,
+    cancelId: 0,
+  });
+  offlineDialogOpen = false;
+  if (choice === 1) {
+    app.quit();
+  } else if (!win.isDestroyed()) {
+    loadUrlSafe(win, target);
+  }
+}
+
+// Поднять окно обратно на ту страницу, где человек работал
+function recoverWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const target = lastGoodUrl || APP_URL;
+  console.error("Возвращаем окно на", target);
+  loadUrlSafe(mainWindow, target);
 }
 
 // Ручная проверка обновлений (из меню «Файл»).
@@ -278,6 +494,31 @@ async function sendPing() {
         installId: getInstallId(),
         version: app.getVersion(),
         os: process.platform,
+      }),
+    });
+  } catch {}
+}
+
+// Сообщить серверу о падении окна. Без этого сбой не виден никому: на сервере
+// он выглядит как «клиент просто перестал слать запросы».
+// Адрес отправляем без параметров запроса - в них бывают поиск и фильтры.
+async function reportCrash(reason, exitCode) {
+  if (!app.isPackaged) return;
+  let url = "";
+  try {
+    url = String(lastGoodUrl || "").split("?")[0];
+  } catch {}
+  try {
+    await fetch("https://formulavvd.com/api/desktop/crash", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        installId: getInstallId(),
+        version: app.getVersion(),
+        os: process.platform,
+        reason,
+        exitCode,
+        url,
       }),
     });
   } catch {}

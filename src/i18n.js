@@ -28,6 +28,16 @@ const STRINGS = {
     updErr: "Не удалось проверить обновления.",
     devOnly: "Проверка обновлений работает только в установленном приложении.",
     ok: "ОК",
+    crashTitle: "VVD 3.0",
+    crashRepeated:
+      "Окно приложения закрывается снова и снова. Данные в безопасности - они на сервере. Попробуйте перезагрузить ещё раз, а если не поможет, закройте приложение и откройте заново.",
+    crashRestart: "Перезагрузить",
+    hangMessage: "Страница не отвечает. Подождать или перезагрузить её?",
+    hangWait: "Подождать",
+    offlineTitle: "Нет связи",
+    offlineMessage:
+      "Не удалось связаться с сервером. Проверьте интернет и повторите.",
+    offlineRetry: "Повторить",
   },
   kk: {
     file: "Файл",
@@ -54,6 +64,16 @@ const STRINGS = {
     updErr: "Жаңартуларды тексеру мүмкін болмады.",
     devOnly: "Жаңартуларды тексеру тек орнатылған қолданбада жұмыс істейді.",
     ok: "ОК",
+    crashTitle: "VVD 3.0",
+    crashRepeated:
+      "Қолданба терезесі қайта-қайта жабылып жатыр. Деректер қауіпсіз - олар серверде. Тағы бір рет жаңартып көріңіз, көмектеспесе, қолданбаны жауып, қайта ашыңыз.",
+    crashRestart: "Жаңарту",
+    hangMessage: "Бет жауап бермейді. Күте тұрасыз ба, әлде жаңартасыз ба?",
+    hangWait: "Күте тұру",
+    offlineTitle: "Байланыс жоқ",
+    offlineMessage:
+      "Сервермен байланысу мүмкін болмады. Интернетті тексеріп, қайталаңыз.",
+    offlineRetry: "Қайталау",
   },
   en: {
     file: "File",
@@ -80,6 +100,15 @@ const STRINGS = {
     updErr: "Failed to check for updates.",
     devOnly: "Update check works only in the installed app.",
     ok: "OK",
+    crashTitle: "VVD 3.0",
+    crashRepeated:
+      "The app window keeps closing. Your data is safe - it lives on the server. Try reloading once more, and if that does not help, close the app and open it again.",
+    crashRestart: "Reload",
+    hangMessage: "The page is not responding. Wait or reload it?",
+    hangWait: "Wait",
+    offlineTitle: "No connection",
+    offlineMessage: "Could not reach the server. Check your internet and try again.",
+    offlineRetry: "Retry",
   },
 };
 
