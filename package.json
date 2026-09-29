@@ -1,6 +1,6 @@
 {
   "name": "vvd-desktop",
-  "version": "1.0.15",
+  "version": "1.0.16",
   "description": "Десктоп-клиент VVD 3.0 для Windows",
   "author": "ТОО «Формула успеха ПВЛ»",
   "license": "UNLICENSED",
@@ -11,7 +11,8 @@
     "icon": "node scripts/make-icon.js",
     "test:recovery": "node scripts/test-offline-recovery.js && node scripts/test-crash-recovery.js",
     "pack": "electron-builder --win --dir",
-    "dist": "electron-builder --win --publish never"
+    "dist": "electron-builder --win --publish never",
+    "test:cache": "node scripts/test-broken-cache.js"
   },
   "devDependencies": {
     "electron": "^42.5.0",

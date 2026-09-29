@@ -1,4 +1,4 @@
-const { app, BrowserWindow, shell, Menu, dialog, ipcMain } = require("electron");
+const { app, BrowserWindow, shell, Menu, dialog, ipcMain, session } = require("electron");
 const { autoUpdater } = require("electron-updater");
 const path = require("path");
 const fs = require("fs");
@@ -47,6 +47,10 @@ let offlineRetryTimer = null;
 // Провалилась ли текущая загрузка. Нужен, чтобы отличить настоящую загрузку
 // страницы от заглушки, которую Electron дорисовывает после неудачи
 let loadFailed = false;
+// Когда последний раз лечили испорченный кэш и сколько раз за этот запуск -
+// чтобы при файле, сломанном на самом сервере, не пересоздавать окно по кругу
+let lastCacheHealAt = 0;
+let cacheHeals = 0;
 
 // true, когда обновление запрошено вручную (меню «Файл» → «Проверить обновления»).
 // Тогда показываем сообщение «обновлений нет»; при авто-проверке молчим.
@@ -68,10 +72,13 @@ app.on("second-instance", () => {
   }
 });
 
-function createWindow() {
-  mainWindow = new BrowserWindow({
+// startUrl и bounds передаются, когда окно пересоздаётся после чистки кэша:
+// человек остаётся на той же странице и на том же месте экрана
+function createWindow(startUrl = APP_URL, bounds = null) {
+  const win = new BrowserWindow({
     width: 1280,
     height: 800,
+    ...(bounds || {}),
     minWidth: 900,
     minHeight: 600,
     title: `VVD 3.0 (v${app.getVersion()})`,
@@ -85,17 +92,19 @@ function createWindow() {
     },
   });
 
+  mainWindow = win;
+
   // Не даём странице сайта перебивать заголовок окна - оставляем
   // «VVD 3.0 (vX.Y.Z)», чтобы всегда была видна версия клиента.
-  mainWindow.on("page-title-updated", (e) => {
+  win.on("page-title-updated", (e) => {
     e.preventDefault();
   });
 
-  loadUrlSafe(mainWindow, APP_URL);
+  loadUrlSafe(win, startUrl);
 
   // Ссылки, открываемые в новой вкладке/окне (target=_blank, window.open) -
   // отправляем во внешний системный браузер, новых окон не плодим.
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+  win.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith("http:") || url.startsWith("https:")) {
       shell.openExternal(url);
     }
@@ -105,11 +114,14 @@ function createWindow() {
   // Навигацию в самом окне не перехватываем - так корректно работают
   // редиректы авторизации и платёжного шлюза внутри приложения.
 
-  attachRecovery(mainWindow);
+  attachRecovery(win);
 
-  mainWindow.on("closed", () => {
-    mainWindow = null;
+  win.on("closed", () => {
+    // Окно могли пересоздать (чистка кэша): старое закрывается уже после
+    // того, как mainWindow указывает на новое, - его не трогаем
+    if (mainWindow === win) mainWindow = null;
   });
+  return win;
 }
 
 // ============================================================
@@ -248,6 +260,116 @@ function attachRecovery(win) {
     console.error("Страница не загрузилась:", errorCode, target);
     retryLoad(win, target);
   });
+
+  // Файл сайта из кэша не разобрался - см. «ИСПОРЧЕННЫЙ КЭШ САЙТА» ниже
+  wc.on("console-message", (e) => {
+    if (isBrokenAssetMessage(e)) healBrokenCache(win, e.message, e.sourceId);
+  });
+}
+
+// ============================================================
+// ИСПОРЧЕННЫЙ КЭШ САЙТА
+//
+// Файлы скриптов сайта (/_next/static/...) браузер хранит год и с сервера
+// больше не берёт: при любой правке файл получает новое имя, так что
+// устареть копия не может. Зато может ИСПОРТИТЬСЯ: обрыв записи на диск,
+// выключение компьютера кнопкой, зависшее окно, снятое диспетчером задач.
+// Тогда битая копия живёт в кэше вечно - её не лечат ни перезапуск, ни
+// переустановка (кэш лежит в папке данных, установщик её не трогает), ни
+// «Обновить (сброс кэша)»: тот сбрасывает кэш только для самой страницы, а
+// скрипты формы подгружаются уже после неё.
+//
+// Снаружи это «кнопка не работает»: нажимаешь «Добавить ученика» или
+// «Настройки» - ничего не происходит, ни ошибки, ни загрузки. В браузере на
+// том же компьютере всё открывается: у браузера свой кэш, целый. Центр Unique,
+// 28-29.09.2026: неделю не открывались формы ученика, преподавателя и
+// настройки; в логах сервера - только повторные запросы страницы, которую
+// окно так и не показало, и ни одного запроса самого файла.
+//
+// Лечение: чистим кэш и открываем страницу в НОВОМ окне. Одной чистки диска
+// мало - битый файл остаётся ещё и в памяти процесса страницы, и пока жив
+// этот процесс, окно продолжает брать его оттуда (проверено на стенде:
+// после clearCache перезагрузка того же окна файл заново не запрашивает,
+// новое окно - запрашивает).
+// ============================================================
+
+// Сообщение консоли, которое означает «файл сайта пришёл битым или не пришёл»
+function isBrokenAssetMessage(e) {
+  if (!e || e.level !== "error") return false;
+  const message = String(e.message || "");
+  // Скрипт не разобрался: обрезан или испорчен
+  if (/SyntaxError/.test(message) && /\/_next\/static\//.test(String(e.sourceId || ""))) {
+    return true;
+  }
+  // Скрипт не загрузился вовсе - так об этом сообщает сборщик сайта
+  return /Failed to load chunk|ChunkLoadError/.test(message);
+}
+
+async function clearSiteCache(ses) {
+  try {
+    await ses.clearCache();
+  } catch {}
+  // Скомпилированные копии скриптов лежат отдельно от кэша
+  try {
+    await ses.clearCodeCaches({});
+  } catch {}
+}
+
+async function healBrokenCache(win, message, sourceId) {
+  if (!win || win.isDestroyed() || win !== mainWindow) return;
+  // Если файл сломан на самом сервере, чистка не поможет: лечим не чаще
+  // раза в полчаса и не больше двух раз за запуск, дальше только сообщаем
+  if (cacheHeals >= 2 || Date.now() - lastCacheHealAt < 30 * 60_000) return;
+  cacheHeals += 1;
+  lastCacheHealAt = Date.now();
+
+  console.error("Битый файл сайта, чистим кэш:", message, sourceId);
+  reportCrash("cache-broken", null);
+
+  const current = win.webContents.getURL();
+  const target = isWebUrl(current) ? current : lastGoodUrl || APP_URL;
+  await clearSiteCache(win.webContents.session);
+  if (win.isDestroyed()) return;
+  reopenWindow(win, target);
+}
+
+// Новое окно на месте старого: новый процесс страницы, файлы - заново с сервера
+function reopenWindow(oldWin, target) {
+  const bounds = oldWin.getNormalBounds();
+  const wasMaximized = oldWin.isMaximized();
+  // Сначала новое, потом закрываем старое: иначе на миг не останется ни
+  // одного окна, и приложение завершится (window-all-closed)
+  const win = createWindow(target, bounds);
+  if (wasMaximized) win.maximize();
+  oldWin.destroy();
+}
+
+// Кэш сайта с чистого листа при первом запуске новой версии клиента.
+// Страховка для тех, у кого битая копия уже лежит и ничем себя не выдаёт.
+// Окна ещё нет, поэтому одной чистки диска достаточно. Вход при этом не
+// теряется: куки и настройки страниц хранятся не в кэше.
+async function clearCacheAfterUpdate() {
+  const file = path.join(app.getPath("userData"), "cache-version");
+  let previous = "";
+  try {
+    previous = fs.readFileSync(file, "utf8").trim();
+  } catch {}
+  if (previous === app.getVersion()) return;
+  await clearSiteCache(session.defaultSession);
+  try {
+    fs.writeFileSync(file, app.getVersion());
+  } catch {}
+}
+
+// Пункт меню «Вид → Обновить (сброс кэша)», Ctrl+Shift+R - для поддержки,
+// когда что-то не открывается только в приложении, а в браузере работает
+async function clearCacheManually(win) {
+  const target = win || mainWindow;
+  if (!target || target.isDestroyed()) return;
+  const current = target.webContents.getURL();
+  await clearSiteCache(target.webContents.session);
+  if (target.isDestroyed()) return;
+  reopenWindow(target, isWebUrl(current) ? current : lastGoodUrl || APP_URL);
 }
 
 // Тихие повторы загрузки, пока связь не вернётся: 5 попыток раз в 6 секунд -
@@ -345,7 +467,13 @@ function buildMenu() {
           },
         },
         { role: "reload", label: t("reload") },
-        { role: "forceReload", label: t("forceReload") },
+        // Не штатный forceReload: тот сбрасывает кэш только для самой страницы,
+        // а битый файл формы остаётся (см. «ИСПОРЧЕННЫЙ КЭШ САЙТА»)
+        {
+          label: t("forceReload"),
+          accelerator: "CmdOrCtrl+Shift+R",
+          click: (_item, win) => clearCacheManually(win),
+        },
         { type: "separator" },
         { role: "resetZoom", label: t("resetZoom") },
         { role: "zoomIn", label: t("zoomIn") },
@@ -524,8 +652,9 @@ async function reportCrash(reason, exitCode) {
   } catch {}
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   buildMenu();
+  await clearCacheAfterUpdate();
   createWindow();
   setupAutoUpdates();
   sendPing();
